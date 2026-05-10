@@ -293,6 +293,16 @@ async def get_languages():
     return [{"code": c, "name": i["name"]} for c, i in SUPPORTED_LANGUAGES.items()]
 
 
+@app.get("/")
+async def root():
+    return {
+        "name": "SubMatch API",
+        "version": "2.0.0",
+        "status": "running",
+        "docs": "/docs",
+        "health": "/health",
+    }
+
 @app.get("/health")
 async def health():
     return {"status": "ok", "version": "2.0.0", "timestamp": datetime.now().isoformat()}
