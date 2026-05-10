@@ -14,11 +14,11 @@ import { cn } from "@/lib/utils";
 import { startAnalysis, uploadVideo } from "@/lib/api";
 
 const WHISPER_MODELS = [
-  { value: "tiny",     label: "Tiny",    desc: "~1min" },
-  { value: "base",     label: "Base",    desc: "~2min" },
-  { value: "small",    label: "Small",   desc: "~5min" },
-  { value: "medium",   label: "Medium",  desc: "~10min", recommended: true },
-  { value: "large-v3", label: "Large",   desc: "~20min" },
+  { value: "tiny",     label: "Tiny",   desc: "~30s" },
+  { value: "base",     label: "Base",   desc: "~1min", recommended: true },
+  { value: "small",    label: "Small",  desc: "~2min" },
+  { value: "medium",   label: "Medium", desc: "~5min" },
+  { value: "large-v3", label: "Large",  desc: "~10min" },
 ];
 
 const LANGUAGES = [
@@ -52,7 +52,7 @@ export default function HomePage() {
   const [tab, setTab] = useState<TabId>("youtube");
   const [audioLang, setAudioLang] = useState("auto");
   const [subtitleLang, setSubtitleLang] = useState("hi");
-  const [whisperModel, setWhisperModel] = useState("medium");
+  const [whisperModel, setWhisperModel] = useState("base");
   const [threshold, setThreshold] = useState(0.75);
   const [useOcr, setUseOcr] = useState(true);
   const [showAdvanced, setShowAdvanced] = useState(false);

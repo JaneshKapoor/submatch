@@ -10,7 +10,7 @@ class Settings(BaseSettings):
     BACKEND_PORT: int = 8000
     FRONTEND_URL: str = "http://localhost:3000"
 
-    WHISPER_MODEL: str = "medium"
+    WHISPER_MODEL: str = "base"
     MAX_CONCURRENT_JOBS: int = 2
     TEMP_DIR: str = "./temp"
 
