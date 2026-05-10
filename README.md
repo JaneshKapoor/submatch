@@ -1,53 +1,90 @@
-# Audio-Subtitle Mismatch Detector
+# SubMatch — Audio-Subtitle Mismatch Detector
 
-**Organisation:** PlanetRead  
-**Domain:** Education  
-**License:** MIT  
+> **PlanetRead · DMP 2026 · Open Source · MIT License**
 
-An open-source tool that automatically detects mismatches between spoken audio and on-screen subtitles in YouTube videos. It compares what is *said* (Whisper ASR) against what is *shown* (downloaded subtitle file or OCR), flags divergent timestamps, and delivers a beautiful interactive HTML report — so QA teams only review what actually needs checking.
+SubMatch automatically detects mismatches between spoken audio and on-screen subtitles in YouTube videos (or uploaded files). It compares what is *said* (Whisper ASR) against what is *shown* (subtitle file or OCR), scores every segment, and delivers an interactive HTML report — so reviewers only need to check flagged moments, not scrub through the entire video.
 
 ---
 
-## Features
+## Demo
 
-- **YouTube integration** — paste any URL; `yt-dlp` downloads video + subtitles automatically
-- **Whisper ASR** — OpenAI Whisper (local, no API key) transcribes audio in 100+ languages
-- **Subtitle download** — manual CC and auto-generated subtitles fetched via `yt-dlp`
-- **OCR fallback** — Tesseract OCR reads burned-in subtitles when no subtitle file exists
-- **Indic language support** — Hindi (Devanagari), Kannada, Tamil, Telugu, Marathi, Bengali, and more
-- **rapidfuzz similarity** — Unicode-aware character-level + token-set scoring
-- **Interactive HTML report** — filterable, searchable, color-coded; works offline
-- **Real-time progress** — WebSocket stream drives a live progress UI
-- **REST API** — fully documented FastAPI backend
+| Timestamp | Audio (Whisper) | Subtitle | Words | Score | Status |
+|-----------|-----------------|----------|-------|-------|--------|
+| 00:10.20 | वो कहाँ गई थी | वो कहाँ गया था | 4 vs 4 | 0.61 | REVIEW |
+| 00:45.70 | ठीक है भाई | ठीक है भाई | 3 vs 3 | 1.00 | OK |
+| 01:00.00 | आज मौसम बहुत अच्छा है | आज मौसम बहुत बुरा है | 5 vs 5 | 0.72 | MARGINAL |
 
 ---
 
 ## Architecture
 
 ```
-┌─────────────────────────────────────────────────┐
-│               Next.js Frontend (port 3000)       │
-│  Landing page → Progress tracker → Report viewer │
-└───────────────────┬─────────────────────────────┘
-                    │ REST + WebSocket
-┌───────────────────▼─────────────────────────────┐
-│              FastAPI Backend (port 8000)          │
-│                                                  │
-│  POST /api/jobs          → start analysis job    │
-│  GET  /api/jobs/:id      → poll job status       │
-│  GET  /api/jobs/:id/report     → report JSON     │
-│  GET  /api/jobs/:id/report.html → standalone HTML│
-│  WS   /ws/:id            → real-time progress    │
-│                                                  │
-│  Pipeline (runs in background thread):           │
-│  1. yt-dlp  → download video + subtitles         │
-│  2. Whisper → transcribe audio → segments        │
-│  3. SubtitleParser → parse VTT/SRT               │
-│     (or OCRExtractor → Tesseract fallback)       │
-│  4. MismatchDetector → align + score segments    │
-│  5. ReportGenerator → write HTML + JSON          │
-└──────────────────────────────────────────────────┘
+Input
+├── YouTube URL  ──────────────────────────────────┐
+└── Upload Video (.mp4 / .mkv / .webm) + optional  │
+    Subtitle file (.vtt / .srt)                     │
+                                                    ▼
+                              ┌─────────────────────────────────┐
+                              │      FastAPI Backend :8000       │
+                              │                                  │
+                              │  1. yt-dlp                       │
+                              │     Download video + subtitles   │
+                              │     (manual CC → auto-gen → OCR) │
+                              │            │                     │
+                              │  2. faster-whisper               │
+                              │     Transcribe audio → segments  │
+                              │     [int8 · VAD filter · local]  │
+                              │            │                     │
+                              │  3. Subtitle Parser              │
+                              │     Parse VTT / SRT              │
+                              │     OR Tesseract OCR fallback    │
+                              │            │                     │
+                              │  4. Mismatch Detector            │
+                              │     rapidfuzz similarity score   │
+                              │     + word-count delta per seg   │
+                              │            │                     │
+                              │  5. Report Generator             │
+                              │     Standalone HTML + JSON       │
+                              └──────────────┬──────────────────┘
+                                             │  WebSocket (real-time progress)
+                              ┌──────────────▼──────────────────┐
+                              │     Next.js Frontend :3000       │
+                              │                                  │
+                              │  Landing page  (URL / Upload)    │
+                              │  Progress page (live steps)      │
+                              │  Report page   (filter / search) │
+                              └─────────────────────────────────┘
 ```
+
+---
+
+## Features
+
+- **Two input modes** — paste a YouTube URL or drag-and-drop a video file
+- **faster-whisper ASR** — 4-8x faster than standard Whisper, runs 100% locally, no API key needed
+- **Subtitle download** — `yt-dlp` fetches manual CC subtitles first, falls back to auto-generated
+- **OCR fallback** — Tesseract reads burned-in subtitles when no subtitle file exists
+- **Indic language support** — Hindi, Kannada, Tamil, Telugu, Marathi, Bengali, Gujarati, Malayalam, Punjabi
+- **Word-count delta** — flags segments where word counts diverge significantly
+- **rapidfuzz similarity** — Unicode-aware character-level + token-set scoring
+- **Real-time progress** — WebSocket stream drives live pipeline step UI
+- **Interactive HTML report** — filterable by status, searchable, downloadable, works offline
+
+---
+
+## Speed
+
+All transcription runs locally — no API calls, no internet needed after first model download.
+
+| Model | 10-min video (CPU) | Best for |
+|-------|--------------------|---------|
+| `tiny` | ~1 min | Quick checks |
+| **`base`** | **~3-4 min** | **English, most Indic — default** |
+| `small` | ~5-6 min | Better Indic accuracy |
+| `medium` | ~10 min | High-accuracy Indic / mixed language |
+| `large-v3` | ~20 min | Maximum accuracy |
+
+> faster-whisper uses CTranslate2 (int8 quantization) + VAD filtering (skips silence) + greedy decoding. Same accuracy as standard Whisper at a fraction of the time.
 
 ---
 
@@ -55,72 +92,51 @@ An open-source tool that automatically detects mismatches between spoken audio a
 
 ### Prerequisites
 
-| Tool | Version | Purpose |
-|------|---------|---------|
-| Python | ≥ 3.10 | Backend |
-| Node.js | ≥ 18 | Frontend |
-| Tesseract OCR | ≥ 4.1 | OCR fallback |
-| ffmpeg | any recent | Whisper audio extraction |
+| Tool | Install |
+|------|---------|
+| Python >= 3.10 | [python.org](https://python.org) |
+| Node.js >= 18 | [nodejs.org](https://nodejs.org) |
+| ffmpeg | `brew install ffmpeg` / `apt install ffmpeg` |
+| Tesseract + Indic packs | see below |
 
-#### Install Tesseract with Indic language packs
-
-**macOS:**
+**Tesseract (macOS):**
 ```bash
 brew install tesseract tesseract-lang
 ```
 
-**Ubuntu / Debian:**
+**Tesseract (Ubuntu/Debian):**
 ```bash
 sudo apt-get install tesseract-ocr \
-  tesseract-ocr-hin \   # Hindi
-  tesseract-ocr-kan \   # Kannada
-  tesseract-ocr-tam \   # Tamil
-  tesseract-ocr-tel \   # Telugu
-  tesseract-ocr-mar \   # Marathi
-  tesseract-ocr-ben     # Bengali
+  tesseract-ocr-hin tesseract-ocr-kan tesseract-ocr-tam \
+  tesseract-ocr-tel tesseract-ocr-mar tesseract-ocr-ben
 ```
 
-**Windows:**  
-Download the installer from https://github.com/UB-Mannheim/tesseract/wiki and select Indic language packs during install.
-
-#### Install ffmpeg
-
-```bash
-# macOS
-brew install ffmpeg
-
-# Ubuntu
-sudo apt-get install ffmpeg
-```
+**Tesseract (Windows):**
+Download from [UB-Mannheim/tesseract](https://github.com/UB-Mannheim/tesseract/wiki) and select Indic language packs during install.
 
 ---
 
-### Backend setup
+### Backend
 
 ```bash
 cd backend
 
-# Create and activate virtual environment
 python -m venv venv
-source venv/bin/activate   # Windows: venv\Scripts\activate
+source venv/bin/activate        # Windows: venv\Scripts\activate
 
-# Install dependencies
 pip install -r requirements.txt
 
-# Copy and configure environment variables
-cp .env.example .env
-# Edit .env if needed (defaults work for local development)
+cp .env.example .env            # defaults work out of the box
 
-# Start the backend
 python main.py
 # or: uvicorn main:app --reload --port 8000
 ```
 
-The first run downloads the Whisper model (~1.5 GB for `medium`). Subsequent runs are instant.
+The first run downloads the Whisper model weights (~150 MB for `base`). Subsequent runs load from cache instantly.
 
 ---
 
-### Frontend setup
+### Frontend
 
 ```bash
 cd frontend
@@ -129,129 +145,104 @@ npm install
 npm run dev
 ```
 
-Open [http://localhost:3000](http://localhost:3000).
+Open [http://localhost:3000](http://localhost:3000)
 
 ---
 
 ## Environment Variables
 
-All configuration lives in `backend/.env` (copy from `.env.example`).
+All config lives in `backend/.env` (copied from `.env.example`).
 
 | Variable | Default | Description |
-|---|---|---|
-| `OPENAI_API_KEY` | _(empty)_ | Optional — use cloud Whisper API instead of local |
-| `YOUTUBE_API_KEY` | _(empty)_ | Optional — not needed, `yt-dlp` works without it |
-| `BACKEND_HOST` | `0.0.0.0` | Backend bind host |
-| `BACKEND_PORT` | `8000` | Backend port |
+|----------|---------|-------------|
+| `OPENAI_API_KEY` | _(empty)_ | Optional — Whisper runs locally, not needed |
+| `YOUTUBE_API_KEY` | _(empty)_ | Optional — yt-dlp works without it |
+| `BACKEND_HOST` | `0.0.0.0` | Bind host |
+| `BACKEND_PORT` | `8000` | Bind port |
 | `FRONTEND_URL` | `http://localhost:3000` | CORS allowed origin |
-| `WHISPER_MODEL` | `medium` | `tiny` / `base` / `small` / `medium` / `large-v3` |
-| `MAX_CONCURRENT_JOBS` | `2` | Concurrent pipeline threads |
-| `HIGH_THRESHOLD` | `0.85` | Score ≥ this → OK (green) |
-| `LOW_THRESHOLD` | `0.65` | Score ≥ this → MARGINAL (yellow); below → REVIEW (red) |
+| `WHISPER_MODEL` | `base` | `tiny` / `base` / `small` / `medium` / `large-v3` |
+| `HIGH_THRESHOLD` | `0.85` | Score >= this → OK |
+| `LOW_THRESHOLD` | `0.65` | Score >= this → MARGINAL; below → REVIEW |
 
 ---
 
-## Usage
+## API Reference
 
-1. Open [http://localhost:3000](http://localhost:3000)
-2. Paste a YouTube URL (any video with subtitles — auto-generated or manual CC)
-3. Select the audio language and subtitle language
-4. Click **Analyze Video**
-5. Watch real-time progress as the pipeline runs
-6. View the interactive report, or download the standalone HTML
-
-### CLI usage (no frontend)
-
-```bash
-cd backend
-python -c "
-from modules.downloader import VideoDownloader
-from modules.transcriber import AudioTranscriber
-from modules.subtitle_parser import SubtitleParser
-from modules.mismatch_detector import MismatchDetector
-from modules.report_generator import ReportGenerator
-import json, os
-
-URL = 'https://www.youtube.com/watch?v=YOUR_VIDEO_ID'
-JOB = './output'
-os.makedirs(JOB, exist_ok=True)
-
-video, subs = VideoDownloader(JOB).download(URL, subtitle_language='hi')
-audio_segs = AudioTranscriber('medium').transcribe(video, language='hi')
-sub_segs   = SubtitleParser().parse(subs[0]) if subs else []
-results    = MismatchDetector(0.85, 0.65).compare(audio_segs, sub_segs)
-ReportGenerator().generate(results, URL, JOB + '/report.html')
-print('Report saved to', JOB + '/report.html')
-"
-```
+| Method | Endpoint | Description |
+|--------|----------|-------------|
+| `POST` | `/api/jobs` | Start analysis from YouTube URL |
+| `POST` | `/api/jobs/upload` | Start analysis from uploaded video file |
+| `GET` | `/api/jobs/:id` | Poll job status and progress |
+| `GET` | `/api/jobs/:id/report` | Full report as JSON |
+| `GET` | `/api/jobs/:id/report.html` | Standalone HTML report |
+| `GET` | `/api/languages` | List supported languages |
+| `WS` | `/ws/:id` | Real-time progress stream |
+| `GET` | `/health` | Health check |
 
 ---
 
-## Report Format
+## Report Statuses
 
-| Column | Description |
-|--------|-------------|
-| Time | Segment start time (MM:SS.ss) |
-| Audio (Whisper) | Text transcribed from the audio track |
-| Subtitle | Text from the subtitle file or OCR |
-| Score | Similarity score 0.00 – 1.00 |
-| Status | OK / MARGINAL / REVIEW / MISSING |
-
-**Example:**
-
-| Time | Audio | Subtitle | Score | Status |
-|------|-------|----------|-------|--------|
-| 00:10.20 | वो कहाँ गई थी | वो कहाँ गया था | 0.61 | REVIEW |
-| 00:45.70 | ठीक है भाई | ठीक है भाई | 0.97 | OK |
+| Status | Score | Meaning |
+|--------|-------|---------|
+| **OK** | >= 0.85 | Audio and subtitle match well |
+| **MARGINAL** | 0.65 – 0.84 | Differences exist — worth a quick look |
+| **REVIEW** | < 0.65 | Significant mismatch — flag for editor |
+| **MISSING** | — | No subtitle segment found for this audio segment |
 
 ---
 
 ## Project Structure
 
 ```
-dmp_2026/
+submatch/
 ├── backend/
-│   ├── main.py                    # FastAPI app + pipeline orchestration
+│   ├── main.py                  # FastAPI app, pipeline orchestration, WebSocket
 │   ├── requirements.txt
-│   ├── .env.example               # ← copy to .env and add your keys
+│   ├── .env.example             # copy to .env before running
 │   ├── config/
-│   │   └── settings.py            # Pydantic settings + language map
+│   │   └── settings.py          # Pydantic settings + language map
 │   ├── modules/
-│   │   ├── downloader.py          # yt-dlp YouTube downloader
-│   │   ├── transcriber.py         # Whisper ASR
-│   │   ├── subtitle_parser.py     # VTT / SRT parser
-│   │   ├── ocr_extractor.py       # Tesseract OCR fallback
-│   │   ├── mismatch_detector.py   # rapidfuzz similarity + flagging
-│   │   └── report_generator.py    # Standalone HTML report
+│   │   ├── downloader.py        # yt-dlp: download video + subtitles
+│   │   ├── transcriber.py       # faster-whisper ASR (local, int8)
+│   │   ├── subtitle_parser.py   # VTT + SRT parser
+│   │   ├── ocr_extractor.py     # Tesseract OCR fallback
+│   │   ├── mismatch_detector.py # rapidfuzz scoring + word-count delta
+│   │   └── report_generator.py  # Standalone HTML report
 │   └── utils/
-│       └── text_utils.py          # Unicode normalization for Indic scripts
+│       └── text_utils.py        # Unicode NFC normalization for Indic scripts
 └── frontend/
     ├── app/
-    │   ├── page.tsx               # Landing + URL input form
-    │   ├── analyze/[id]/page.tsx  # Real-time progress page
-    │   └── report/[id]/page.tsx   # Interactive report viewer
-    ├── lib/
-    │   ├── api.ts                 # Backend API client
-    │   └── types.ts               # TypeScript types
-    └── ...config files
+    │   ├── page.tsx             # Landing page — YouTube URL + file upload tabs
+    │   ├── analyze/[id]/        # Real-time progress page
+    │   └── report/[id]/         # Interactive report viewer
+    ├── components/ui/
+    │   ├── aurora-background.tsx
+    │   ├── button.tsx
+    │   ├── badge.tsx
+    │   └── card.tsx
+    └── lib/
+        ├── api.ts               # API client (REST + WebSocket)
+        ├── types.ts             # TypeScript types
+        └── utils.ts             # Tailwind utility
 ```
 
 ---
 
 ## Supported Languages
 
-| Code | Language | Whisper | Tesseract OCR |
-|------|----------|---------|---------------|
-| `hi` | Hindi (हिन्दी) | ✅ | `hin` |
-| `kn` | Kannada (ಕನ್ನಡ) | ✅ | `kan` |
-| `en` | English | ✅ | `eng` |
-| `ta` | Tamil (தமிழ்) | ✅ | `tam` |
-| `te` | Telugu (తెలుగు) | ✅ | `tel` |
-| `mr` | Marathi (मराठी) | ✅ | `mar` |
-| `bn` | Bengali (বাংলা) | ✅ | `ben` |
-| `gu` | Gujarati (ગુજરાતી) | ✅ | `guj` |
-| `ml` | Malayalam (മലയാളം) | ✅ | `mal` |
-| `pa` | Punjabi (ਪੰਜਾਬੀ) | ✅ | `pan` |
+| Code | Language | Script |
+|------|----------|--------|
+| `hi` | Hindi | हिन्दी |
+| `kn` | Kannada | ಕನ್ನಡ |
+| `en` | English | Latin |
+| `ta` | Tamil | தமிழ் |
+| `te` | Telugu | తెలుగు |
+| `mr` | Marathi | मराठी |
+| `bn` | Bengali | বাংলা |
+| `gu` | Gujarati | ગુજરાતી |
+| `ml` | Malayalam | മലയാളം |
+| `pa` | Punjabi | ਪੰਜਾਬੀ |
 
 ---
 
@@ -259,15 +250,15 @@ dmp_2026/
 
 | Layer | Technology |
 |-------|-----------|
-| Frontend | Next.js 14, TailwindCSS, TypeScript |
+| Frontend | Next.js 14, TailwindCSS, TypeScript, Radix UI |
 | Backend | Python 3.10+, FastAPI, uvicorn |
-| ASR | OpenAI Whisper (local) |
-| Video/subtitle download | yt-dlp |
+| ASR | faster-whisper (CTranslate2, int8, runs locally) |
+| Download | yt-dlp |
 | Subtitle parsing | webvtt-py + custom SRT parser |
-| OCR | Tesseract + pytesseract + OpenCV |
+| OCR | Tesseract 5 + pytesseract + OpenCV |
 | Text similarity | rapidfuzz |
-| Report | Standalone HTML + Tailwind CDN |
-| Real-time | WebSocket (FastAPI + browser native) |
+| Report | Standalone HTML with Tailwind CDN |
+| Real-time | WebSocket |
 
 ---
 
@@ -279,4 +270,4 @@ Pull requests are welcome. Please open an issue first to discuss what you'd like
 
 ## License
 
-MIT — free for personal and commercial use.
+MIT
