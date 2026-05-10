@@ -1,0 +1,40 @@
+# HuggingFace Spaces Docker deployment
+# Port MUST be 7860 for HF Spaces
+FROM python:3.11-slim
+
+# System dependencies
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    ffmpeg \
+    tesseract-ocr \
+    tesseract-ocr-hin \
+    tesseract-ocr-kan \
+    tesseract-ocr-tam \
+    tesseract-ocr-tel \
+    tesseract-ocr-mar \
+    tesseract-ocr-ben \
+    tesseract-ocr-guj \
+    tesseract-ocr-mal \
+    tesseract-ocr-pan \
+    libgl1 \
+    libglib2.0-0 \
+    && rm -rf /var/lib/apt/lists/*
+
+# HuggingFace Spaces runs as non-root user 1000
+RUN useradd -m -u 1000 appuser
+
+WORKDIR /app
+
+COPY requirements.txt .
+RUN pip install --no-cache-dir -r requirements.txt
+
+COPY . .
+RUN mkdir -p temp && chown -R appuser:appuser /app
+
+USER 1000
+
+# HF Spaces requires port 7860
+EXPOSE 7860
+
+ENV PORT=7860
+
+CMD ["uvicorn", "main:app", "--host", "0.0.0.0", "--port", "7860"]
