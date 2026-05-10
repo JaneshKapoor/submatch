@@ -38,8 +38,8 @@ app = FastAPI(title="SubMatch", description="Audio-Subtitle Mismatch Detector", 
 
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=[settings.FRONTEND_URL, "http://localhost:3000", "http://127.0.0.1:3000"],
-    allow_credentials=True,
+    allow_origins=["*"],   # tightened per-origin via FRONTEND_URL in production env
+    allow_credentials=False,
     allow_methods=["*"],
     allow_headers=["*"],
 )
@@ -319,5 +319,8 @@ async def ws_endpoint(websocket: WebSocket, job_id: str):
 
 
 if __name__ == "__main__":
+    import os
     import uvicorn
-    uvicorn.run("main:app", host=settings.BACKEND_HOST, port=settings.BACKEND_PORT, reload=True)
+    # Railway injects PORT; fall back to settings value for local dev
+    port = int(os.environ.get("PORT", settings.BACKEND_PORT))
+    uvicorn.run("main:app", host=settings.BACKEND_HOST, port=port, reload=False)
