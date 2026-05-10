@@ -10,6 +10,8 @@ pydantic-settings==2.3.1
 
 # YouTube download & subtitle fetch
 yt-dlp==2024.5.27
+# Cloud-safe subtitle fetching (bypasses YouTube bot detection on cloud IPs)
+youtube-transcript-api==0.6.2
 
 # Audio transcription — faster-whisper is 4-8x faster than openai-whisper on CPU
 # Uses CTranslate2 backend with int8 quantization; no GPU required
