@@ -154,13 +154,15 @@ class VideoDownloader:
     def _download_video(self, url: str) -> Path:
         output_template = str(self.job_dir / "video.%(ext)s")
 
+        # Download AUDIO ONLY — Whisper only needs audio, not video frames.
+        # Audio files are 5-20x smaller → much faster on cloud, less memory.
         ydl_opts = {
-            "format": "bestvideo[ext=mp4]+bestaudio[ext=m4a]/best[ext=mp4]/best",
+            "format": "bestaudio[ext=m4a]/bestaudio/best",
             "outtmpl": output_template,
-            # Use Android client — bypasses bot detection on cloud IPs
+            # Android client bypasses bot detection on cloud/datacenter IPs
             "extractor_args": {
                 "youtube": {
-                    "player_client": ["android", "ios", "web_creator"],
+                    "player_client": ["android", "ios"],
                     "player_skip": ["webpage", "configs"],
                 }
             },
@@ -170,10 +172,8 @@ class VideoDownloader:
                     "(Linux; U; Android 12; GB) gzip"
                 ),
             },
-            # Also try to get subtitles as fallback (in case transcript API failed)
-            "writesubtitles": True,
-            "writeautomaticsub": True,
-            "subtitlesformat": "vtt/srt/best",
+            "socket_timeout": 30,       # don't hang forever
+            "retries": 3,
             "quiet": True,
             "no_warnings": True,
             "progress_hooks": [self._ydl_progress_hook],
@@ -184,8 +184,7 @@ class VideoDownloader:
             with yt_dlp.YoutubeDL(ydl_opts) as ydl:
                 ydl.download([url])
         except Exception as e:
-            logger.warning("yt-dlp download failed: %s — trying fallback client", e)
-            # Fallback: try with web client + no client hints
+            logger.warning("Android client failed: %s — trying web client", e)
             ydl_opts["extractor_args"] = {"youtube": {"player_client": ["web"]}}
             ydl_opts.pop("http_headers", None)
             try:
@@ -193,22 +192,22 @@ class VideoDownloader:
                     ydl.download([url])
             except Exception as e2:
                 raise RuntimeError(
-                    f"YouTube download failed on both Android and web clients.\n"
+                    f"YouTube audio download failed.\n"
                     f"Error: {e2}\n"
-                    f"Try uploading the video file directly instead of using a YouTube URL."
+                    f"Tip: Use the 'Upload Video' tab to upload the file directly."
                 ) from e2
 
-        # Find downloaded video file
-        for ext in ("mp4", "mkv", "webm", "avi", "mov"):
+        # Find downloaded file (audio or video — faster-whisper handles both)
+        for ext in ("m4a", "mp3", "opus", "webm", "mp4", "mkv", "avi", "mov"):
             p = self.job_dir / f"video.{ext}"
             if p.exists():
                 return p
 
         for f in self.job_dir.iterdir():
-            if f.suffix in {".mp4", ".mkv", ".webm", ".avi", ".mov"}:
+            if f.suffix in {".m4a", ".mp3", ".opus", ".webm", ".mp4", ".mkv", ".avi", ".mov"}:
                 return f
 
-        raise FileNotFoundError(f"No video file found in {self.job_dir}")
+        raise FileNotFoundError(f"No audio/video file found in {self.job_dir}")
 
     def _collect_subtitle_files(self, subtitle_language: str) -> list[str]:
         patterns = [

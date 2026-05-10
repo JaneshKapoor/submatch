@@ -50,7 +50,8 @@ export default function AnalyzePage() {
   function startPolling() {
     pollRef.current = setInterval(async () => {
       try {
-        const r = await fetch(`http://localhost:8000/api/jobs/${jobId}`);
+        const base = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000";
+        const r = await fetch(`${base}/api/jobs/${jobId}`);
         if (!r.ok) return;
         const data: Partial<Job> = await r.json();
         setJob((p) => ({ ...p, ...data }));
@@ -153,8 +154,17 @@ export default function AnalyzePage() {
         <div className="w-full glass-bright rounded-2xl border border-white/8 p-5 space-y-1">
           {STEPS.map((step, i) => {
             const completed = job.steps_completed?.includes(step.key);
+            // Match each step to a unique keyword in the backend's current_step strings
+            const STEP_KEYWORDS: Record<string, string> = {
+              "Download / Upload":   "downloading",
+              "Audio Transcription": "transcribing",
+              "Subtitle Extraction": "parsing subtitle",
+              "Mismatch Detection":  "detecting",
+              "Report Generation":   "generating",
+            };
+            const keyword = STEP_KEYWORDS[step.key] ?? "";
             const isActive = !completed && !isFailed && !isCompleted &&
-              job.current_step?.toLowerCase().includes(step.key.split(" ")[0].toLowerCase());
+              !!keyword && job.current_step?.toLowerCase().includes(keyword);
 
             return (
               <div key={step.key} className={cn(
